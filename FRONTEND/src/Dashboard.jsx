@@ -53,7 +53,7 @@ export function Dashboard() {
     setTimeout(() => setMensagemSucesso(''), 4300);
   };
 
-  // 🔄 SINCRONIZAÇÃO ADAPTATIVA COM O BACKEND
+// 🔄 SINCRONIZAÇÃO ADAPTATIVA COM O BACKEND
   const carregarDadosDoBanco = async () => {
     try {
       // Tenta rotas no plural e no singular para garantir compatibilidade com seu backend
@@ -71,8 +71,10 @@ export function Dashboard() {
       const resDesempenho = await axios.get('http://localhost:3000/academico/desempenho').catch(() => ({ data: [] }));
       setListaDesempenho(Array.isArray(resDesempenho.data) ? resDesempenho.data : []);
 
+      // --- AJUSTE FEITO AQUI ---
+      const mentorIdReal = usuarioLogado?.id;
       const urlMonitorias = (usuarioLogado && usuarioLogado.tipo === 'mentor')
-        ? `http://localhost:3000/academico/monitorias/mentor/${usuarioLogado.id}`
+        ? `http://localhost:3000/academico/monitorias/mentor/${mentorIdReal}`
         : 'http://localhost:3000/academico/monitorias';
       
       const resMonit = await axios.get(urlMonitorias).catch(() => ({ data: [] }));

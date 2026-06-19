@@ -60,7 +60,8 @@ exports.listarMonitoriasPorMentor = (req, res) => {
       JOIN disciplinas d ON v.disciplina_id = d.id
       WHERE v.mentor_id = ?
     `;
-    const monitorias = db.prepare(query).all();
+    // CORRIGIDO: Agora passa o mentorId para o SQLite preencher o "?"
+    const monitorias = db.prepare(query).all(mentorId); 
     res.json(monitorias);
   } catch (error) {
     res.status(500).json({ error: error.message });

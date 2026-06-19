@@ -6,38 +6,85 @@ export function Dashboard() {
   const [perfil, setPerfil] = useState('publico');
   const [usuarioLogado, setUsuarioLogado] = useState(null);
   const [erroApi, setErroApi] = useState('');
+  
+  // Estados para Mensagens Informativas Reativas
   const [mensagemSucesso, setMensagemSucesso] = useState('');
+  const [mostrarMensagem, setMostrarMensagem] = useState(false);
   
-  // Controle de Abas dentro do Painel Admin
-  const [abaAtiva, setAbaAtiva] = useState('geral'); // geral | alunos | mentores | disciplinas
+  // Controle de Navegação das Abas do Ecossistema
+  const [abaAtiva, setAbaAtiva] = useState('geral');
   const [exibirModalCadastro, setExibirModalCadastro] = useState(false);
+  const [exibirModalDisciplina, setExibirModalDisciplina] = useState(false);
+  const [exibirModalVinculo, setExibirModalVinculo] = useState(false);
+  const [exibirModalMonitoria, setExibirModalMonitoria] = useState(false);
+  const [exibirModalNotas, setExibirModalNotas] = useState(false);
   
-  // Estados para armazenar dados vindos do SQLite
+  const [itemEmEdicao, setItemEmEdicao] = useState(null);
+  const [alunoSelecionadoParaNotas, setAlunoSelecionadoParaNotas] = useState(null);
+  const [alunoSelecionadoParaMonitoria, setAlunoSelecionadoParaMonitoria] = useState(null);
+
+  // Estados dos dados acadêmicos sincronizados com o Banco de Dados
   const [listaUsuarios, setListaUsuarios] = useState([]);
   const [listaDisciplinas, setListaDisciplinas] = useState([]);
+  const [listaVinculos, setListaVinculos] = useState([]);
+  const [listaMonitorias, setListaMonitorias] = useState([]);
+  const [listaDesempenho, setListaDesempenho] = useState([]);
 
-  // Formulários
-  const { register: registerLogin, handleSubmit: handleSubmitLogin, formState: { errors: errorsLogin } } = useForm();
-  const { register: registerUser, handleSubmit: handleSubmitUser, reset: resetUserForm, formState: { errors: errorsUser } } = useForm();
-  const { register: registerDisc, handleSubmit: handleSubmitDisc, reset: resetDiscForm, formState: { errors: errorsDisc } } = useForm();
+  // Inicialização do React Hook Form para captura limpa de payloads
+  const { register: registerLogin, handleSubmit: handleSubmitLogin } = useForm();
+  const { register: registerUser, handleSubmit: handleSubmitUser, reset: resetUserForm, setValue: setValueUser } = useForm();
+  const { register: registerDisc, handleSubmit: handleSubmitDisc, reset: resetDiscForm, setValue: setValueDisc } = useForm();
+  const { register: registerVinculo, handleSubmit: handleSubmitVinculo, reset: resetVinculoForm } = useForm();
+  const { register: registerMonit, handleSubmit: handleSubmitMonit, reset: resetMonitForm } = useForm();
+  const { register: registerNotas, handleSubmit: handleSubmitNotas, reset: resetNotasForm } = useForm();
 
-  // Buscar usuários e disciplinas do banco de dados
-  const carregarDadosBanco = async () => {
+  // Limpeza de erros ao alternar abas de gerenciamento
+  useEffect(() => {
+    setMostrarMensagem(false);
+    setTimeout(() => setMensagemSucesso(''), 300);
+    setErroApi('');
+    setItemEmEdicao(null);
+  }, [abaAtiva]);
+
+  const dispararMensagemSucesso = (texto) => {
+    setMensagemSucesso(texto);
+    setMostrarMensagem(true);
+    setTimeout(() => setMostrarMensagem(false), 4000);
+    setTimeout(() => setMensagemSucesso(''), 4300);
+  };
+
+  // 🔄 SINCRONIZAÇÃO ADAPTATIVA COM O BACKEND
+  const carregarDadosDoBanco = async () => {
     try {
-      const resUsuarios = await axios.get('http://localhost:3000/users');
-      setListaUsuarios(resUsuarios.data);
+      // Tenta rotas no plural e no singular para garantir compatibilidade com seu backend
+      const resUsers = await axios.get('http://localhost:3000/users').catch(() => axios.get('http://localhost:3000/user'));
+      const dadosUsuarios = Array.isArray(resUsers.data) ? resUsers.data : (resUsers.data?.users || []);
+      setListaUsuarios(dadosUsuarios);
+
+      const resDiscipline = await axios.get('http://localhost:3000/disciplinas').catch(() => axios.get('http://localhost:3000/disciplina'));
+      const dadosDisciplinas = Array.isArray(resDiscipline.data) ? resDiscipline.data : (resDiscipline.data?.disciplinas || []);
+      setListaDisciplinas(dadosDisciplinas);
+
+      const resVinculos = await axios.get('http://localhost:3000/academico/vinculos').catch(() => ({ data: [] }));
+      setListaVinculos(Array.isArray(resVinculos.data) ? resVinculos.data : []);
+
+      const resDesempenho = await axios.get('http://localhost:3000/academico/desempenho').catch(() => ({ data: [] }));
+      setListaDesempenho(Array.isArray(resDesempenho.data) ? resDesempenho.data : []);
+
+      const urlMonitorias = (usuarioLogado && usuarioLogado.tipo === 'mentor')
+        ? `http://localhost:3000/academico/monitorias/mentor/${usuarioLogado.id}`
+        : 'http://localhost:3000/academico/monitorias';
       
-      // Quando criarmos a rota de disciplinas buscamos aqui, por enquanto iniciamos vazio
-      setListaDisciplinas([]);
+      const resMonit = await axios.get(urlMonitorias).catch(() => ({ data: [] }));
+      setListaMonitorias(Array.isArray(resMonit.data) ? resMonit.data : []);
     } catch (err) {
-      console.error("Erro ao carregar dados do SQLite", err);
+      console.error("Falha ao ler dados do banco de dados SQLite", err);
     }
   };
 
-  // Carrega os dados assim que o Admin logar ou mudar de aba
   useEffect(() => {
-    if (perfil === 'admin') {
-      carregarDadosBanco();
+    if (perfil !== 'publico') {
+      carregarDadosDoBanco();
     }
   }, [perfil, abaAtiva]);
 
@@ -51,29 +98,145 @@ export function Dashboard() {
       const { user, token } = resposta.data;
       localStorage.setItem('@MentorHub:token', token);
       setUsuarioLogado(user);
-      setPerfil(user.tipo);
+      setPerfil(user.tipo ? user.tipo.toLowerCase() : (user.role ? user.role.toLowerCase() : 'publico'));
     } catch (err) {
-      setErroApi(err.response?.data?.error || 'Falha na comunicação.');
+      setErroApi(err.response?.data?.error || 'Acesso negado. Verifique suas credenciais.');
     }
   };
 
-  const handleCadastroUsuario = async (dados) => {
-    setErroApi('');
-    setMensagemSucesso('');
-    try {
-      await axios.post('http://localhost:3000/auth/register', {
-        nome: dados.nome,
-        email: dados.email,
-        senha: dados.senha,
-        tipo: dados.tipo
-      });
-      setMensagemSucesso(`Usuário cadastrado com sucesso!`);
-      resetUserForm();
-      setExibirModalCadastro(false);
-      carregarDadosBanco(); // Atualiza a tabela na hora
-    } catch (err) {
-      setErroApi(err.response?.data?.error || 'Erro ao salvar no banco.');
+  const exportarParaExcel = () => {
+    if (listaDesempenho.length === 0) {
+      alert("Nenhum dado de desempenho cadastrado para exportar.");
+      return;
     }
+    let csvContent = "data:text/csv;charset=utf-8,";
+    csvContent += "ID,Aluno,Disciplina,Nota Inicial,Nota Intermediaria,Nota Final,DestaqueSemestre\n";
+    listaDesempenho.forEach(d => {
+      csvContent += `${d.id},${d.aluno_nome || d.aluno},${d.disciplina_nome || d.disciplina},${d.nota_inicial},${d.nota_intermediaria},${d.nota_final},${d.destaque === 1 ? 'SIM' : 'NAO'}\n`;
+    });
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `relatorio_desempenho_mentorhub.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    dispararMensagemSucesso("Planilha gerada com sucesso!");
+  };
+
+  const handleSalvarUsuario = async (dados) => {
+    try {
+      if (itemEmEdicao) {
+        await axios.put(`http://localhost:3000/users/${itemEmEdicao.id}`, dados).catch(() => axios.put(`http://localhost:3000/user/${itemEmEdicao.id}`, dados));
+        dispararMensagemSucesso(`Alterações salvas com sucesso.`);
+      } else {
+        await axios.post('http://localhost:3000/auth/register', dados);
+        dispararMensagemSucesso(`Usuário criado com sucesso.`);
+      }
+      setExibirModalCadastro(false);
+      carregarDadosDoBanco();
+    } catch (err) { setErroApi('Erro operacional ao salvar usuário.'); }
+  };
+
+  const handleDeletarUsuario = async (id, nome) => {
+    if (window.confirm(`Tem certeza que deseja remover permanentemente ${nome}?`)) {
+      try {
+        await axios.delete(`http://localhost:3000/users/${id}`).catch(() => axios.delete(`http://localhost:3000/user/${id}`));
+        dispararMensagemSucesso('Registro removido do ecossistema.');
+        carregarDadosDoBanco();
+      } catch (err) { setErroApi('Erro ao deletar usuário.'); }
+    }
+  };
+
+  const handleSalvarDisciplina = async (dados) => {
+    try {
+      if (itemEmEdicao) {
+        await axios.put(`http://localhost:3000/disciplinas/${itemEmEdicao.id}`, dados).catch(() => axios.put(`http://localhost:3000/disciplina/${itemEmEdicao.id}`, dados));
+        dispararMensagemSucesso(`Disciplina modificada.`);
+      } else {
+        await axios.post('http://localhost:3000/disciplinas', dados).catch(() => axios.post('http://localhost:3000/disciplina', dados));
+        dispararMensagemSucesso(`Disciplina salva com sucesso.`);
+      }
+      setExibirModalDisciplina(false);
+      carregarDadosDoBanco();
+    } catch (err) { setErroApi('Erro ao processar disciplina.'); }
+  };
+
+  const handleDeletarDisciplina = async (id, nome) => {
+    if (window.confirm(`Excluir a disciplina ${nome}?`)) {
+      try {
+        await axios.delete(`http://localhost:3000/disciplinas/${id}`).catch(() => axios.delete(`http://localhost:3000/disciplina/${id}`));
+        dispararMensagemSucesso('Disciplina removida.');
+        carregarDadosDoBanco();
+      } catch (err) { setErroApi('Erro ao deletar disciplina.'); }
+    }
+  };
+
+  const handleSalvarVinculo = async (dados) => {
+    try {
+      await axios.post('http://localhost:3000/academico/vinculos', dados);
+      dispararMensagemSucesso('Atribuição acadêmica realizada com sucesso!');
+      setExibirModalVinculo(false);
+      resetVinculoForm();
+      carregarDadosDoBanco();
+    } catch (err) { setErroApi('Falha ao criar atribuição.'); }
+  };
+
+  const handleSalvarMonitoria = async (dados) => {
+    try {
+      await axios.post('http://localhost:3000/academico/monitorias', dados);
+      dispararMensagemSucesso('Sessão registrada no histórico com sucesso!');
+      setExibirModalMonitoria(false);
+      resetMonitForm();
+      carregarDadosDoBanco();
+    } catch (err) { setErroApi('Erro ao arquivar monitoria.'); }
+  };
+
+  // 🔥 SOLUÇÃO DEFINITIVA DO SALVAMENTO DE NOTAS (Payload Duplo / Flexível)
+  const handleSalvarNotasDesempenho = async (dados) => {
+    try {
+      // Enviamos tanto as chaves numéricas quanto os nomes em texto plano para satisfazer qualquer que seja a modelagem do seu banco SQLite
+      const payload = {
+        aluno_id: alunoSelecionadoParaNotas.aluno_id || alunoSelecionadoParaNotas.id,
+        disciplina_id: alunoSelecionadoParaNotas.disciplina_id,
+        aluno_nome: alunoSelecionadoParaNotas.aluno_nome || alunoSelecionadoParaNotas.aluno,
+        disciplina_nome: alunoSelecionadoParaNotas.disciplina_nome || alunoSelecionadoParaNotas.disciplina,
+        aluno: alunoSelecionadoParaNotas.aluno_nome || alunoSelecionadoParaNotas.aluno, 
+        disciplina: alunoSelecionadoParaNotas.disciplina_nome || alunoSelecionadoParaNotas.disciplina,
+        nota_inicial: parseFloat(dados.nota_inicial),
+        nota_intermediaria: parseFloat(dados.nota_intermediaria),
+        nota_final: parseFloat(dados.nota_final),
+        destaque: dados.destaque ? 1 : 0
+      };
+      
+      await axios.post('http://localhost:3000/academico/desempenho', payload);
+      dispararMensagemSucesso('Boletim de evolução e destaque atualizados com sucesso!');
+      setExibirModalNotas(false);
+      resetNotasForm();
+      carregarDadosDoBanco();
+    } catch (err) { 
+      setErroApi('Falha na persistência: Verifique se os campos de notas estão preenchidos corretamente ou se o backend espera parâmetros adicionais.'); 
+    }
+  };
+
+  const abrirEdicaoUsuario = (usuario) => {
+    setItemEmEdicao(usuario);
+    setExibirModalCadastro(true);
+    setTimeout(() => {
+      setValueUser("nome", usuario.nome || usuario.name);
+      setValueUser("email", usuario.email);
+      setValueUser("tipo", usuario.tipo || usuario.tipoUsuario || usuario.role);
+    }, 50);
+  };
+
+  const abrirEdicaoDisciplina = (disciplina) => {
+    setItemEmEdicao(disciplina);
+    setExibirModalDisciplina(true);
+    setTimeout(() => {
+      setValueDisc("nome", disciplina.nome);
+      setValueDisc("codigo", disciplina.codigo);
+      setValueDisc("cargaHoraria", disciplina.cargaHoraria);
+    }, 50);
   };
 
   const handleLogout = () => {
@@ -82,235 +245,473 @@ export function Dashboard() {
     setPerfil('publico');
   };
 
-  // Filtros de usuários por tipo
-  const alunosCadastrados = listaUsuarios.filter(u => u.tipo === 'aluno' || u.tipoUsuario === 'Aluno');
-  const mentoresCadastrados = listaUsuarios.filter(u => u.tipo === 'mentor' || u.tipoUsuario === 'Mentor');
+  // 🔍 TRATAMENTO MULTI-PROPRIEDADE PARA ALUNOS E MENTORES NÃO SUMIREM MAIS DAS ESTATÍSTICAS
+  const alunosCadastrados = listaUsuarios.filter(u => {
+    const cargo = String(u.tipo || u.tipoUsuario || u.role || '').toLowerCase();
+    return cargo === 'aluno';
+  });
+
+  const mentoresCadastrados = listaUsuarios.filter(u => {
+    const cargo = String(u.tipo || u.tipoUsuario || u.role || '').toLowerCase();
+    return cargo === 'mentor';
+  });
+  
+  const meusAlunosVinculados = listaVinculos.filter(v => {
+    if (!usuarioLogado) return false;
+    const mentorNomeLogado = (usuarioLogado.nome || usuarioLogado.name || '').toLowerCase();
+    const matchId = String(v.mentor_id) === String(usuarioLogado.id);
+    const matchEmail = v.mentor_email && v.mentor_email.toLowerCase() === usuarioLogado.email?.toLowerCase();
+    const matchNome = v.mentor_nome && v.mentor_nome.toLowerCase() === mentorNomeLogado;
+    const matchNomeDireto = v.mentor && v.mentor.toLowerCase() === mentorNomeLogado;
+    return matchId || matchEmail || matchNome || matchNomeDireto;
+  });
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', fontFamily: 'sans-serif', backgroundColor: '#f8fafc', margin: 0 }}>
+    <div style={{ display: 'flex', minHeight: '100vh', fontFamily: 'sans-serif', backgroundColor: '#f4f6f9', margin: 0 }}>
       
-      {/* 1. SIDEBAR AZUL PREMIUM */}
-      <aside style={{ width: '260px', backgroundColor: '#0d233a', color: 'white', display: 'flex', flexDirection: 'column', padding: '24px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '40px' }}>
-          <span style={{ fontSize: '28px' }}>🛡️</span>
+      {/* SIDEBAR NAVEGACIONAL */}
+      <aside style={{ width: '270px', backgroundColor: '#0d233a', color: 'white', display: 'flex', flexDirection: 'column', padding: '20px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '40px' }}>
+          <span style={{ fontSize: '24px' }}>🛡️</span>
           <div>
-            <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 'bold', letterSpacing: '0.5px' }}>MentorHub</h2>
-            <span style={{ fontSize: '12px', color: '#94a3b8' }}>Painel de Controle</span>
+            <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 'bold' }}>MentorHub</h2>
+            <span style={{ fontSize: '12px', color: '#cbd5e1' }}>Painel Acadêmico</span>
           </div>
         </div>
 
-        {/* Links de navegação baseados no perfil logado */}
-        <nav style={{ display: 'flex', flexDirection: 'column', gap: '8px', flexGrow: 1 }}>
-          {perfil === 'admin' ? (
+        <nav style={{ display: 'flex', flexDirection: 'column', gap: '10px', flexGrow: 1 }}>
+          {perfil === 'admin' && (
             <>
-              <button onClick={() => setAbaAtiva('geral')} style={{ background: abaAtiva === 'geral' ? 'rgba(255,255,255,0.1)' : 'none', color: 'white', border: 'none', padding: '12px', borderRadius: '8px', textAlign: 'left', cursor: 'pointer', fontSize: '14px', fontWeight: '500' }}>📊 Visão Geral</button>
-              <button onClick={() => setAbaAtiva('alunos')} style={{ background: abaAtiva === 'alunos' ? 'rgba(255,255,255,0.1)' : 'none', color: 'white', border: 'none', padding: '12px', borderRadius: '8px', textAlign: 'left', cursor: 'pointer', fontSize: '14px', fontWeight: '500' }}>👨‍🎓 Gestão de Alunos</button>
-              <button onClick={() => setAbaAtiva('mentores')} style={{ background: abaAtiva === 'mentores' ? 'rgba(255,255,255,0.1)' : 'none', color: 'white', border: 'none', padding: '12px', borderRadius: '8px', textAlign: 'left', cursor: 'pointer', fontSize: '14px', fontWeight: '500' }}>👨‍🏫 Gestão de Mentores</button>
-              <button onClick={() => setAbaAtiva('disciplinas')} style={{ background: abaAtiva === 'disciplinas' ? 'rgba(255,255,255,0.1)' : 'none', color: 'white', border: 'none', padding: '12px', borderRadius: '8px', textAlign: 'left', cursor: 'pointer', fontSize: '14px', fontWeight: '500' }}>📚 Disciplinas</button>
+              <button onClick={() => setAbaAtiva('geral')} style={{ background: abaAtiva === 'geral' ? 'rgba(255,255,255,0.1)' : 'none', color: 'white', border: 'none', padding: '12px', borderRadius: '6px', textAlign: 'left', cursor: 'pointer' }}>📊 Visão Geral</button>
+              <button onClick={() => setAbaAtiva('alunos')} style={{ background: abaAtiva === 'alunos' ? 'rgba(255,255,255,0.1)' : 'none', color: 'white', border: 'none', padding: '12px', borderRadius: '6px', textAlign: 'left', cursor: 'pointer' }}>👨‍🎓 Alunos & Desempenho</button>
+              <button onClick={() => setAbaAtiva('mentores')} style={{ background: abaAtiva === 'mentores' ? 'rgba(255,255,255,0.1)' : 'none', color: 'white', border: 'none', padding: '12px', borderRadius: '6px', textAlign: 'left', cursor: 'pointer' }}>👨‍🏫 Mentores</button>
+              <button onClick={() => setAbaAtiva('disciplinas')} style={{ background: abaAtiva === 'disciplinas' ? 'rgba(255,255,255,0.1)' : 'none', color: 'white', border: 'none', padding: '12px', borderRadius: '6px', textAlign: 'left', cursor: 'pointer' }}>📚 Disciplinas</button>
+              <button onClick={() => setAbaAtiva('atribuir')} style={{ background: abaAtiva === 'atribuir' ? 'rgba(255,255,255,0.1)' : 'none', color: 'white', border: 'none', padding: '12px', borderRadius: '6px', textAlign: 'left', cursor: 'pointer' }}>🔗 Atribuições / Vínculos</button>
+              <button onClick={() => setAbaAtiva('relatorios_gerais')} style={{ background: abaAtiva === 'relatorios_gerais' ? 'rgba(255,255,255,0.1)' : 'none', color: 'white', border: 'none', padding: '12px', borderRadius: '6px', textAlign: 'left', cursor: 'pointer' }}>📋 Relatórios de Monitoria</button>
             </>
-          ) : (
-            <button style={{ background: 'rgba(255,255,255,0.1)', color: 'white', border: 'none', padding: '12px', borderRadius: '8px', textAlign: 'left', fontSize: '14px' }}>🏠 Início</button>
+          )}
+
+          {perfil === 'mentor' && (
+            <>
+              <button onClick={() => setAbaAtiva('alunos')} style={{ background: abaAtiva === 'alunos' ? 'rgba(255,255,255,0.1)' : 'none', color: 'white', border: 'none', padding: '12px', borderRadius: '6px', textAlign: 'left', cursor: 'pointer' }}>👨‍🎓 Painel de Alunos & Gráficos</button>
+              <button onClick={() => setAbaAtiva('mentor_alunos')} style={{ background: abaAtiva === 'mentor_alunos' ? 'rgba(255,255,255,0.1)' : 'none', color: 'white', border: 'none', padding: '12px', borderRadius: '6px', textAlign: 'left', cursor: 'pointer' }}>🛠️ Área de Lançamentos</button>
+              <button onClick={() => setAbaAtiva('relatorios_gerais')} style={{ background: abaAtiva === 'relatorios_gerais' ? 'rgba(255,255,255,0.1)' : 'none', color: 'white', border: 'none', padding: '12px', borderRadius: '6px', textAlign: 'left', cursor: 'pointer' }}>📋 Histórico de Monitorias</button>
+            </>
           )}
         </nav>
 
         {perfil !== 'publico' && (
-          <div style={{ borderTop: '1px solid #1e293b', paddingTop: '20px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            <span style={{ fontSize: '14px', fontWeight: '600' }}>👤 {usuarioLogado?.nome}</span>
-            <span style={{ fontSize: '12px', color: '#94a3b8' }}>Acesso: {perfil.toUpperCase()}</span>
-            <button onClick={handleLogout} style={{ backgroundColor: '#ef4444', color: 'white', border: 'none', padding: '10px', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontWeight: 'bold', marginTop: '10px' }}>Sair da Conta</button>
+          <div style={{ borderTop: '1px solid #1e293b', paddingTop: '15px' }}>
+            <span style={{ fontSize: '13px', display: 'block', marginBottom: '10px', color: '#cbd5e1' }}>Conectado como: <br/><strong style={{ color: 'white' }}>{usuarioLogado?.nome || usuarioLogado?.name || 'Usuário'}</strong> ({perfil.toUpperCase()})</span>
+            <button onClick={handleLogout} style={{ width: '100%', backgroundColor: '#ef4444', color: 'white', border: 'none', padding: '8px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>Sair</button>
           </div>
         )}
       </aside>
 
-      {/* 2. ÁREA DE CONTEÚDO PRINCIPAL */}
-      <main style={{ flexGrow: 1, padding: '40px', overflowY: 'auto' }}>
-        
-        {/* --- TELA DE LOGIN PÚBLICA --- */}
+      {/* PAINEL DE CONTEÚDO PRINCIPAL */}
+      <main style={{ flexGrow: 1, padding: '40px' }}>
+        {mensagemSucesso && (
+          <div style={{ backgroundColor: '#ecfdf5', color: '#10b981', padding: '14px', borderRadius: '8px', marginBottom: '20px', border: '1px solid #a7f3d0', fontWeight: 'bold' }}>
+            ✅ {mensagemSucesso}
+          </div>
+        )}
+        {erroApi && <div style={{ backgroundColor: '#ffeeec', color: '#ef4444', padding: '12px', borderRadius: '6px', marginBottom: '20px', border: '1px solid #fca5a5', fontWeight: 'bold' }}>⚠️ {erroApi}</div>}
+
+        {/* TELA DE AUTENTICAÇÃO */}
         {perfil === 'publico' && (
-          <div style={{ maxWidth: '450px', backgroundColor: 'white', padding: '40px', borderRadius: '16px', boxShadow: '0 10px 25px -5px rgba(0,0,0,0.05)', margin: '100px auto' }}>
-            <h3 style={{ marginTop: 0, color: '#0d233a', marginBottom: '8px', textAlign: 'center', fontSize: '24px' }}>MentorHub Acadêmico</h3>
-            <p style={{ color: '#64748b', textAlign: 'center', fontSize: '14px', marginBottom: '30px' }}>Insira suas credenciais institucionais</p>
-            
-            {erroApi && <div style={{ backgroundColor: '#ffeeec', color: '#ef4444', padding: '12px', borderRadius: '8px', marginBottom: '20px', fontSize: '14px', textAlign: 'center' }}>⚠️ {erroApi}</div>}
-
+          <div style={{ maxWidth: '450px', backgroundColor: 'white', padding: '30px', borderRadius: '12px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)', margin: '100px auto' }}>
+            <h3 style={{ textAlign: 'center', color: '#0d233a', marginBottom: '20px' }}>Acessar o Sistema Integrado</h3>
             <form onSubmit={handleSubmitLogin(handleLoginReal)}>
-              <div style={{ marginBottom: '18px' }}>
-                <label style={{ display: 'block', marginBottom: '6px', fontSize: '14px', fontWeight: '500', color: '#334155' }}>E-mail:</label>
-                <input type="email" {...registerLogin("email", { required: "O e-mail é obrigatório" })} style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #cbd5e1', boxSizing: 'border-box' }} placeholder="seu.nome@instituicao.edu" />
-              </div>
-
-              <div style={{ marginBottom: '24px' }}>
-                <label style={{ display: 'block', marginBottom: '6px', fontSize: '14px', fontWeight: '500', color: '#334155' }}>Senha:</label>
-                <input type="password" {...registerLogin("senha", { required: "A senha é obrigatória" })} style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #cbd5e1', boxSizing: 'border-box' }} placeholder="••••••••" />
-              </div>
-
-              <button type="submit" style={{ width: '100%', backgroundColor: '#0d233a', color: 'white', border: 'none', padding: '14px', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', fontSize: '16px' }}>Entrar no Sistema</button>
+              <div style={{ marginBottom: '15px' }}><label style={{ fontWeight: 'bold', fontSize: '14px' }}>E-mail:</label><input type="email" {...registerLogin("email", { required: true })} style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1', boxSizing: 'border-box', marginTop: '5px' }} /></div>
+              <div style={{ marginBottom: '20px' }}><label style={{ fontWeight: 'bold', fontSize: '14px' }}>Senha:</label><input type="password" {...registerLogin("senha", { required: true })} style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1', boxSizing: 'border-box', marginTop: '5px' }} /></div>
+              <button type="submit" style={{ width: '100%', backgroundColor: '#0d233a', color: 'white', border: 'none', padding: '12px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>Entrar</button>
             </form>
           </div>
         )}
 
-        {/* --- CONTEÚDO EXCLUSIVO DO ADMINISTRADOR --- */}
-        {perfil === 'admin' && (
+        {/* COMPONENTES SECUNDÁRIOS AUTENTICADOS */}
+        {perfil !== 'publico' && (
           <div>
-            {/* Mensagens de feedback de ações */}
-            {mensagemSucesso && <div style={{ backgroundColor: '#ecfdf5', color: '#10b981', padding: '14px', borderRadius: '8px', marginBottom: '20px', border: '1px solid #a7f3d0', fontWeight: '500' }}>✅ {mensagemSucesso}</div>}
-
-            {/* ABA 1: VISÃO GERAL (CARD CARDS COM ESTATÍSTICAS MACRO - RF18) */}
             {abaAtiva === 'geral' && (
               <div>
-                <h2 style={{ color: '#0d233a', marginBottom: '4px' }}>Visão Geral do Sistema</h2>
-                <p style={{ color: '#64748b', marginTop: 0, marginBottom: '30px' }}>Estatísticas em tempo real puxadas do SQLite.</p>
-                
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '24px' }}>
-                  <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '12px', boxShadow: '0 4px 6px rgba(0,0,0,0.02)', border: '1px solid #e2e8f0' }}>
-                    <span style={{ fontSize: '32px' }}>👨‍🎓</span>
-                    <h4 style={{ margin: '12px 0 4px 0', color: '#64748b' }}>Total de Alunos</h4>
-                    <p style={{ margin: 0, fontSize: '28px', fontWeight: 'bold', color: '#0d233a' }}>{alunosCadastrados.length}</p>
+                <div style={{ backgroundColor: 'white', padding: '30px', borderRadius: '12px', marginBottom: '30px', boxShadow: '0 4px 6px rgba(0,0,0,0.02)' }}>
+                  <h1>Estatísticas Gerais do Sistema</h1>
+                  <p style={{ color: '#64748b' }}>Acompanhamento operacional em tempo real.</p>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '20px' }}>
+                  <div style={{ backgroundColor: 'white', padding: '25px', borderRadius: '12px', textAlign: 'center', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
+                    <span style={{ fontSize: '40px' }}>👨‍🎓</span><h3>Alunos</h3><p style={{ fontSize: '32px', fontWeight: 'bold', margin: 0 }}>{alunosCadastrados.length}</p>
                   </div>
-                  <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '12px', boxShadow: '0 4px 6px rgba(0,0,0,0.02)', border: '1px solid #e2e8f0' }}>
-                    <span style={{ fontSize: '32px' }}>👨‍🏫</span>
-                    <h4 style={{ margin: '12px 0 4px 0', color: '#64748b' }}>Mentores Ativos</h4>
-                    <p style={{ margin: 0, fontSize: '28px', fontWeight: 'bold', color: '#0d233a' }}>{mentoresCadastrados.length}</p>
+                  <div style={{ backgroundColor: 'white', padding: '25px', borderRadius: '12px', textAlign: 'center', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
+                    <span style={{ fontSize: '40px' }}>👨‍🏫</span><h3>Mentores</h3><p style={{ fontSize: '32px', fontWeight: 'bold', margin: 0 }}>{mentoresCadastrados.length}</p>
                   </div>
-                  <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '12px', boxShadow: '0 4px 6px rgba(0,0,0,0.02)', border: '1px solid #e2e8f0' }}>
-                    <span style={{ fontSize: '32px' }}>📚</span>
-                    <h4 style={{ margin: '12px 0 4px 0', color: '#64748b' }}>Disciplinas Mapeadas</h4>
-                    <p style={{ margin: 0, fontSize: '28px', fontWeight: 'bold', color: '#0d233a' }}>{listaDisciplinas.length}</p>
+                  <div style={{ backgroundColor: 'white', padding: '25px', borderRadius: '12px', textAlign: 'center', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
+                    <span style={{ fontSize: '40px' }}>📚</span><h3>Disciplinas</h3><p style={{ fontSize: '32px', fontWeight: 'bold', margin: 0 }}>{listaDisciplinas.length}</p>
                   </div>
                 </div>
               </div>
             )}
 
-            {/* ABA 2: LISTAGEM DE ALUNOS COM LAYOUT CLEAN */}
+            {/* ABA DE EVOLUÇÃO ACADÊMICA E BOLETIM INTEGRADO */}
             {abaAtiva === 'alunos' && (
               <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-                  <div>
-                    <h2 style={{ color: '#0d233a', margin: 0 }}>Gestão de Alunos</h2>
-                    <p style={{ color: '#64748b', margin: '4px 0 0 0' }}>Alunos com direito a solicitar mentorias na plataforma.</p>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                  <h2>Painel de Gestão e Evolução dos Alunos</h2>
+                  <div style={{ display: 'flex', gap: '10px' }}>
+                    <button onClick={exportarParaExcel} style={{ backgroundColor: '#16a34a', color: 'white', border: 'none', padding: '10px 20px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>📊 Exportar Notas para Excel (CSV)</button>
+                    {perfil === 'admin' && (
+                      <button onClick={() => { setItemEmEdicao(null); resetUserForm(); setExibirModalCadastro(true); }} style={{ backgroundColor: '#0d233a', color: 'white', border: 'none', padding: '10px 20px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>+ Cadastrar Aluno</button>
+                    )}
                   </div>
-                  <button onClick={() => setExibirModalCadastro(true)} style={{ backgroundColor: '#10b981', color: 'white', border: 'none', padding: '12px 20px', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }}>+ Cadastrar Aluno</button>
                 </div>
 
-                <div style={{ backgroundColor: 'white', borderRadius: '12px', boxShadow: '0 4px 6px rgba(0,0,0,0.02)', overflow: 'hidden', border: '1px solid #e2e8f0' }}>
+                {/* 1. Alunos de Destaque no Período */}
+                <div style={{ marginBottom: '30px' }}>
+                  <h3 style={{ color: '#b45309', display: 'flex', alignItems: 'center', gap: '6px' }}>🌟 Alunos de Destaque do Semestre</h3>
+                  <div style={{ display: 'flex', gap: '15px', flexWrap: 'wrap', marginTop: '10px' }}>
+                    {listaDesempenho.filter(d => d.destaque === 1).map(d => (
+                      <div key={d.id} style={{ backgroundColor: '#fef3c7', border: '1px solid #fde68a', padding: '15px', borderRadius: '8px', minWidth: '220px' }}>
+                        <div style={{ fontWeight: 'bold', color: '#92400e' }}>🏅 {d.aluno_nome || d.aluno}</div>
+                        <div style={{ fontSize: '13px', color: '#b45309', marginTop: '3px' }}>Disciplina: {d.disciplina_nome || d.disciplina}</div>
+                        <div style={{ fontSize: '12px', marginTop: '8px', fontWeight: 'bold', color: '#78350f', backgroundColor: '#fef08a', display: 'inline-block', padding: '2px 6px', borderRadius: '4px' }}>Média Final: {d.nota_final}</div>
+                      </div>
+                    ))}
+                    {listaDesempenho.filter(d => d.destaque === 1).length === 0 && <p style={{ color: '#64748b', fontSize: '14px' }}>Nenhum destaque registrado para este período.</p>}
+                  </div>
+                </div>
+
+                {/* 2. Gráfico Dinâmico */}
+                <div style={{ backgroundColor: 'white', padding: '25px', borderRadius: '12px', marginBottom: '30px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
+                  <h3>📈 Gráfico de Desempenho durante a Mentoria</h3>
+                  <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '20px' }}>Legenda do Progresso Semestral: <span style={{ color: '#ef4444' }}>■ Nota Inicial</span> | <span style={{ color: '#3b82f6' }}>■ Nota Intermediária</span> | <span style={{ color: '#10b981' }}>■ Nota Final (Prova)</span></p>
+                  
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                    {listaDesempenho.map(d => (
+                      <div key={d.id} style={{ borderBottom: '1px solid #f1f5f9', paddingBottom: '15px' }}>
+                        <div style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '10px' }}>{d.aluno_nome || d.aluno} — <span style={{ color: '#64748b', fontWeight: 'normal' }}>{d.disciplina_nome || d.disciplina}</span></div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <span style={{ fontSize: '11px', width: '90px', color: '#64748b' }}>Inicial:</span>
+                            <div style={{ backgroundColor: '#ef4444', height: '16px', width: `${Math.max(d.nota_inicial * 9, 5)}%`, borderRadius: '4px', color: 'white', fontSize: '11px', fontWeight: 'bold', paddingLeft: '8px', display: 'flex', alignItems: 'center' }}>{d.nota_inicial}</div>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <span style={{ fontSize: '11px', width: '90px', color: '#64748b' }}>Intermediária:</span>
+                            <div style={{ backgroundColor: '#3b82f6', height: '16px', width: `${Math.max(d.nota_intermediaria * 9, 5)}%`, borderRadius: '4px', color: 'white', fontSize: '11px', fontWeight: 'bold', paddingLeft: '8px', display: 'flex', alignItems: 'center' }}>{d.nota_intermediaria}</div>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <span style={{ fontSize: '11px', width: '90px', color: '#64748b' }}>Final (Prova):</span>
+                            <div style={{ backgroundColor: '#10b981', height: '16px', width: `${Math.max(d.nota_final * 9, 5)}%`, borderRadius: '4px', color: 'white', fontSize: '11px', fontWeight: 'bold', paddingLeft: '8px', display: 'flex', alignItems: 'center' }}>{d.nota_final}</div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                    {listaDesempenho.length === 0 && <p style={{ color: '#64748b', fontSize: '14px' }}>Nenhum gráfico disponível. Lance notas na Área de Lançamentos.</p>}
+                  </div>
+                </div>
+
+                {/* 3. Tabela de Alunos */}
+                <div style={{ backgroundColor: 'white', borderRadius: '8px', boxShadow: '0 2px 4px rgba(0,0,0,0.05)', overflow: 'hidden' }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
-                    <thead style={{ backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                    <thead style={{ backgroundColor: '#f8fafc' }}>
                       <tr>
-                        <th style={{ padding: '16px', color: '#475569' }}>Nome</th>
-                        <th style={{ padding: '16px', color: '#475569' }}>E-mail Institucional</th>
-                        <th style={{ padding: '16px', color: '#475569' }}>Status</th>
+                        <th style={{ padding: '15px' }}>Nome</th>
+                        <th style={{ padding: '15px' }}>E-mail</th>
+                        {perfil === 'admin' && <th style={{ padding: '15px', width: '180px' }}>Ações</th>}
                       </tr>
                     </thead>
                     <tbody>
-                      {alunosCadastrados.map(aluno => (
-                        <tr key={aluno.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                          <td style={{ padding: '16px', fontWeight: '500', color: '#0d233a' }}>{aluno.nome || aluno.name}</td>
-                          <td style={{ padding: '16px', color: '#475569' }}>{aluno.email}</td>
-                          <td style={{ padding: '16px' }}><span style={{ backgroundColor: '#d1fae5', color: '#065f46', padding: '4px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: '600' }}>Ativo</span></td>
+                      {alunosCadastrados.map(a => (
+                        <tr key={a.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                          <td style={{ padding: '15px', fontWeight: 'bold' }}>{a.nome || a.name}</td>
+                          <td style={{ padding: '15px' }}>{a.email}</td>
+                          {perfil === 'admin' && (
+                            <td style={{ padding: '15px', display: 'flex', gap: '8px' }}>
+                              <button onClick={() => abrirEdicaoUsuario(a)} style={{ backgroundColor: '#3b82f6', color: 'white', border: 'none', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer', fontSize: '13px' }}>Editar</button>
+                              <button onClick={() => handleDeletarUsuario(a.id, a.nome || a.name)} style={{ backgroundColor: '#ef4444', color: 'white', border: 'none', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer', fontSize: '13px' }}>Remover</button>
+                            </td>
+                          )}
                         </tr>
                       ))}
-                      {alunosCadastrados.length === 0 && (
-                        <tr><td colSpan="3" style={{ padding: '30px', textAlign: 'center', color: '#94a3b8' }}>Nenhum aluno cadastrado no banco de dados ainda.</td></tr>
-                      )}
                     </tbody>
                   </table>
                 </div>
               </div>
             )}
 
-            {/* ABA 3: LISTAGEM DE MENTORES */}
+            {/* ABA MENTORES */}
             {abaAtiva === 'mentores' && (
               <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-                  <div>
-                    <h2 style={{ color: '#0d233a', margin: 0 }}>Gestão de Mentores</h2>
-                    <p style={{ color: '#64748b', margin: '4px 0 0 0' }}>Especialistas vinculados para atendimento acadêmico.</p>
-                  </div>
-                  <button onClick={() => setExibirModalCadastro(true)} style={{ backgroundColor: '#10b981', color: 'white', border: 'none', padding: '12px 20px', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }}>+ Cadastrar Mentor</button>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                  <h2>Gestão de Mentores</h2>
+                  {perfil === 'admin' && (
+                    <button onClick={() => { setItemEmEdicao(null); resetUserForm(); setExibirModalCadastro(true); }} style={{ backgroundColor: '#10b981', color: 'white', border: 'none', padding: '10px 20px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>+ Cadastrar Mentor</button>
+                  )}
                 </div>
-
-                <div style={{ backgroundColor: 'white', borderRadius: '12px', boxShadow: '0 4px 6px rgba(0,0,0,0.02)', overflow: 'hidden', border: '1px solid #e2e8f0' }}>
+                <div style={{ backgroundColor: 'white', borderRadius: '8px', boxShadow: '0 2px 4px rgba(0,0,0,0.05)', overflow: 'hidden' }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
-                    <thead style={{ backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                    <thead style={{ backgroundColor: '#f8fafc' }}>
                       <tr>
-                        <th style={{ padding: '16px', color: '#475569' }}>Nome</th>
-                        <th style={{ padding: '16px', color: '#475569' }}>E-mail Institucional</th>
-                        <th style={{ padding: '16px', color: '#475569' }}>Perfil</th>
+                        <th style={{ padding: '15px' }}>Nome</th>
+                        <th style={{ padding: '15px' }}>E-mail</th>
+                        {perfil === 'admin' && <th style={{ padding: '15px', width: '180px' }}>Ações</th>}
                       </tr>
                     </thead>
                     <tbody>
-                      {mentoresCadastrados.map(mentor => (
-                        <tr key={mentor.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                          <td style={{ padding: '16px', fontWeight: '500', color: '#0d233a' }}>{mentor.nome}</td>
-                          <td style={{ padding: '16px', color: '#475569' }}>{mentor.email}</td>
-                          <td style={{ padding: '16px' }}><span style={{ backgroundColor: '#e0f2fe', color: '#0369a1', padding: '4px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: '600' }}>MENTOR</span></td>
+                      {mentoresCadastrados.map(m => (
+                        <tr key={m.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                          <td style={{ padding: '15px', fontWeight: 'bold' }}>{m.nome || m.name}</td>
+                          <td style={{ padding: '15px' }}>{m.email}</td>
+                          {perfil === 'admin' && (
+                            <td style={{ padding: '15px', display: 'flex', gap: '8px' }}>
+                              <button onClick={() => abrirEdicaoUsuario(m)} style={{ backgroundColor: '#3b82f6', color: 'white', border: 'none', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer', fontSize: '13px' }}>Editar</button>
+                              <button onClick={() => handleDeletarUsuario(m.id, m.nome || m.name)} style={{ backgroundColor: '#ef4444', color: 'white', border: 'none', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer', fontSize: '13px' }}>Remover</button>
+                            </td>
+                          )}
                         </tr>
                       ))}
-                      {mentoresCadastrados.length === 0 && (
-                        <tr><td colSpan="3" style={{ padding: '30px', textAlign: 'center', color: '#94a3b8' }}>Nenhum mentor cadastrado no banco de dados ainda.</td></tr>
-                      )}
                     </tbody>
                   </table>
                 </div>
               </div>
             )}
 
-            {/* ABA 4: GESTÃO DE DISCIPLINAS */}
+            {/* ABA DISCIPLINAS */}
             {abaAtiva === 'disciplinas' && (
               <div>
-                <h2 style={{ color: '#0d233a', marginBottom: '24px' }}>Gestão de Disciplinas (RF05)</h2>
-                <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0', maxWidth: '500px' }}>
-                  <h4 style={{ margin: '0 0 15px 0' }}>Cadastrar Nova Disciplina</h4>
-                  <p style={{ fontSize: '14px', color: '#64748b' }}>As disciplinas permitem organizar as futuras mentorias.</p>
-                  <button style={{ backgroundColor: '#0d233a', color: 'white', border: 'none', padding: '10px 16px', borderRadius: '6px', cursor: 'pointer' }}>Configurar Grade Curricular</button>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                  <h2>Gestão de Disciplinas</h2>
+                  {perfil === 'admin' && (
+                    <button onClick={() => { setItemEmEdicao(null); resetDiscForm(); setExibirModalDisciplina(true); }} style={{ backgroundColor: '#0d233a', color: 'white', border: 'none', padding: '10px 20px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>+ Adicionar Disciplina</button>
+                  )}
+                </div>
+                <div style={{ backgroundColor: 'white', borderRadius: '8px', boxShadow: '0 2px 4px rgba(0,0,0,0.05)', overflow: 'hidden' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                    <thead style={{ backgroundColor: '#f8fafc' }}>
+                      <tr>
+                        <th style={{ padding: '15px' }}>Código</th>
+                        <th style={{ padding: '15px' }}>Nome da Disciplina</th>
+                        <th style={{ padding: '15px' }}>Carga Horária</th>
+                        {perfil === 'admin' && <th style={{ padding: '15px', width: '180px' }}>Ações</th>}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {listaDisciplinas.map(d => (
+                        <tr key={d.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                          <td style={{ padding: '15px', fontWeight: 'bold', color: '#0369a1' }}>{d.codigo}</td>
+                          <td style={{ padding: '15px' }}>{d.nome}</td>
+                          <td style={{ padding: '15px' }}>{d.cargaHoraria || d.carga_horaria}h</td>
+                          {perfil === 'admin' && (
+                            <td style={{ padding: '15px', display: 'flex', gap: '8px' }}>
+                              <button onClick={() => abrirEdicaoDisciplina(d)} style={{ backgroundColor: '#3b82f6', color: 'white', border: 'none', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer', fontSize: '13px' }}>Editar</button>
+                              <button onClick={() => handleDeletarDisciplina(d.id, d.nome)} style={{ backgroundColor: '#ef4444', color: 'white', border: 'none', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer', fontSize: '13px' }}>Remover</button>
+                            </td>
+                          )}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               </div>
             )}
 
-            {/* MODAL SUSPENSO MODERNO PARA CADASTRO (EVITA POLUIR A TELA) */}
-            {exibirModalCadastro && (
-              <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', backgroundColor: 'rgba(15, 23, 42, 0.4)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }}>
-                <div style={{ backgroundColor: 'white', padding: '32px', borderRadius: '16px', width: '100%', maxWidth: '480px', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                    <h3 style={{ margin: 0, color: '#0d233a' }}>Novo Registro</h3>
-                    <button onClick={() => setExibirModalCadastro(false)} style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', color: '#94a3b8' }}>✕</button>
-                  </div>
-
-                  <form onSubmit={handleSubmitUser(handleCadastroUsuario)}>
-                    <div style={{ marginBottom: '14px' }}>
-                      <label style={{ display: 'block', marginBottom: '4px', fontSize: '13px', fontWeight: '500' }}>Nome:</label>
-                      <input type="text" {...registerUser("nome", { required: true })} style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1', boxSizing: 'border-box' }} placeholder="Nome Completo" />
-                    </div>
-                    <div style={{ marginBottom: '14px' }}>
-                      <label style={{ display: 'block', marginBottom: '4px', fontSize: '13px', fontWeight: '500' }}>E-mail:</label>
-                      <input type="email" {...registerUser("email", { required: true })} style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1', boxSizing: 'border-box' }} placeholder="exemplo@instituicao.edu" />
-                    </div>
-                    <div style={{ marginBottom: '14px' }}>
-                      <label style={{ display: 'block', marginBottom: '4px', fontSize: '13px', fontWeight: '500' }}>Senha:</label>
-                      <input type="password" {...registerUser("senha", { required: true })} style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1', boxSizing: 'border-box' }} placeholder="••••••••" />
-                    </div>
-                    <div style={{ marginBottom: '20px' }}>
-                      <label style={{ display: 'block', marginBottom: '4px', fontSize: '13px', fontWeight: '500' }}>Perfil:</label>
-                      <select {...registerUser("tipo", { required: true })} style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1', backgroundColor: 'white' }}>
-                        <option value="aluno">Aluno</option>
-                        <option value="mentor">Mentor</option>
-                        <option value="admin">Administrador</option>
-                      </select>
-                    </div>
-                    <button type="submit" style={{ width: '100%', backgroundColor: '#10b981', color: 'white', border: 'none', padding: '12px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>Salvar no SQLite</button>
-                  </form>
+            {/* ABA ATRIBUIÇÕES */}
+            {abaAtiva === 'atribuir' && perfil === 'admin' && (
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                  <h2>Vínculos e Atribuições Acadêmicas</h2>
+                  <button onClick={() => setExibirModalVinculo(true)} style={{ backgroundColor: '#0d233a', color: 'white', padding: '10px 20px', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>+ Atribuir Aluno a Mentor</button>
+                </div>
+                <div style={{ backgroundColor: 'white', borderRadius: '8px', overflow: 'hidden', boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                    <thead style={{ backgroundColor: '#f8fafc' }}>
+                      <tr>
+                        <th style={{ padding: '15px' }}>Aluno</th>
+                        <th style={{ padding: '15px' }}>Mentor Designado</th>
+                        <th style={{ padding: '15px' }}>Disciplina Mapeada</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {listaVinculos.map(v => (
+                        <tr key={v.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                          <td style={{ padding: '15px', fontWeight: 'bold' }}>{v.aluno_nome || v.aluno}</td>
+                          <td style={{ padding: '15px' }}>{v.mentor_nome || v.mentor}</td>
+                          <td style={{ padding: '15px' }}><span style={{ backgroundColor: '#e0f2fe', color: '#0369a1', padding: '4px 8px', borderRadius: '4px', fontSize: '13px' }}>{v.disciplina_nome || v.disciplina}</span></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               </div>
             )}
 
+            {/* HISTÓRICO DE MONITORIAS */}
+            {abaAtiva === 'relatorios_gerais' && (
+              <div>
+                <h2>📋 Histórico de Monitorias</h2>
+                <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '25px', marginTop: '20px' }}>
+                  {listaMonitorias.length === 0 ? (
+                    <p style={{ color: '#64748b', fontSize: '14px' }}>Nenhuma sessão arquivada no sistema.</p>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                      {listaMonitorias.map(m => (
+                        <div key={m.id} style={{ borderLeft: '4px solid #10b981', backgroundColor: '#f8fafc', padding: '15px', borderRadius: '0 8px 8px 0' }}>
+                          <strong>👤 Aluno: {m.aluno_nome || m.aluno}</strong>
+                          <div>📚 Disciplina: {m.disciplina_nome || m.disciplina}</div>
+                          <div style={{ fontSize: '13px', color: '#64748b' }}>📅 Data: {m.data} | {m.descricao}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* ÁREA DE LANÇAMENTOS (MENTOR) */}
+            {abaAtiva === 'mentor_alunos' && perfil === 'mentor' && (
+              <div>
+                <h2>🛠️ Central de Lançamentos e Acompanhamento do Mentor</h2>
+                <div style={{ backgroundColor: 'white', borderRadius: '8px', overflow: 'hidden', boxShadow: '0 2px 4px rgba(0,0,0,0.05)', marginTop: '20px' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                    <thead style={{ backgroundColor: '#f8fafc' }}>
+                      <tr>
+                        <th style={{ padding: '15px' }}>Nome do Aluno</th>
+                        <th style={{ padding: '15px' }}>Matéria Monitorada</th>
+                        <th style={{ padding: '15px', width: '340px' }}>Ações Obrigatórias</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {meusAlunosVinculados.map(v => (
+                        <tr key={v.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                          <td style={{ padding: '15px', fontWeight: 'bold' }}>{v.aluno_nome || v.aluno}</td>
+                          <td style={{ padding: '15px' }}>{v.disciplina_nome || v.disciplina}</td>
+                          <td style={{ padding: '15px', display: 'flex', gap: '10px' }}>
+                            <button onClick={() => { setAlunoSelecionadoParaNotas(v); setExibirModalNotas(true); }} style={{ backgroundColor: '#3b82f6', color: 'white', border: 'none', padding: '8px 14px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>📈 Lançar Notas & Destaque</button>
+                            <button onClick={() => { setAlunoSelecionadoParaMonitoria(v); setExibirModalMonitoria(true); }} style={{ backgroundColor: '#10b981', color: 'white', border: 'none', padding: '8px 14px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>📅 Registrar Monitoria</button>
+                          </td>
+                        </tr>
+                      ))}
+                      {meusAlunosVinculados.length === 0 && (
+                        <tr>
+                          <td colSpan="3" style={{ padding: '20px', textAlign: 'center', color: '#64748b' }}>Nenhum aluno atribuído a você ainda.</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
           </div>
         )}
-
-        {/* --- OUTROS STUBS --- */}
-        {perfil === 'aluno' && (<div><h2>Painel do Aluno</h2><p>Área sob demanda.</p></div>)}
-        {perfil === 'mentor' && (<div><h2>Painel do Mentor</h2><p>Área sob demanda.</p></div>)}
-
       </main>
+
+      {/* --- MODAIS OPERACIONAIS --- */}
+      {exibirModalCadastro && (
+        <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', backgroundColor: 'rgba(0,0,0,0.4)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }}>
+          <div style={{ backgroundColor: 'white', padding: '30px', borderRadius: '12px', width: '350px' }}>
+            <h3>{itemEmEdicao ? '⚙️ Alterar Cadastro' : '✨ Novo Usuário'}</h3>
+            <form onSubmit={handleSubmitUser(handleSalvarUsuario)}>
+              <div style={{ marginBottom: '10px' }}><label>Nome:</label><input type="text" {...registerUser("nome", { required: true })} style={{ width: '100%', padding: '8px' }} /></div>
+              <div style={{ marginBottom: '10px' }}><label>E-mail:</label><input type="email" {...registerUser("email", { required: true })} style={{ width: '100%', padding: '8px' }} /></div>
+              {!itemEmEdicao && (
+                <div style={{ marginBottom: '10px' }}><label>Senha Inicial:</label><input type="password" {...registerUser("senha", { required: true })} style={{ width: '100%', padding: '8px' }} /></div>
+              )}
+              <div style={{ marginBottom: '15px' }}>
+                <label>Perfil:</label>
+                <select {...registerUser("tipo", { required: true })} style={{ width: '100%', padding: '8px' }}>
+                  <option value="aluno">Aluno</option>
+                  <option value="mentor">Mentor</option>
+                  <option value="admin">Administrador</option>
+                </select>
+              </div>
+              <button type="submit" style={{ width: '100%', backgroundColor: '#10b981', color: 'white', padding: '10px', border: 'none', borderRadius: '6px' }}>Salvar</button>
+              <button type="button" onClick={() => setExibirModalCadastro(false)} style={{ width: '100%', background: 'none', border: 'none', marginTop: '10px', color: '#64748b' }}>Cancelar</button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {exibirModalDisciplina && (
+        <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', backgroundColor: 'rgba(0,0,0,0.4)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }}>
+          <div style={{ backgroundColor: 'white', padding: '30px', borderRadius: '12px', width: '350px' }}>
+            <h3>{itemEmEdicao ? '⚙️ Alterar Disciplina' : '📚 Nova Disciplina'}</h3>
+            <form onSubmit={handleSubmitDisc(handleSalvarDisciplina)}>
+              <div style={{ marginBottom: '10px' }}><label>Nome:</label><input type="text" {...registerDisc("nome", { required: true })} style={{ width: '100%', padding: '8px' }} /></div>
+              <div style={{ marginBottom: '10px' }}><label>Código:</label><input type="text" {...registerDisc("codigo", { required: true })} style={{ width: '100%', padding: '8px' }} /></div>
+              <div style={{ marginBottom: '15px' }}><label>Carga Horária:</label><input type="number" {...registerDisc("cargaHoraria", { required: true })} style={{ width: '100%', padding: '8px' }} /></div>
+              <button type="submit" style={{ width: '100%', backgroundColor: '#0d233a', color: 'white', padding: '10px', border: 'none', borderRadius: '6px' }}>Salvar</button>
+              <button type="button" onClick={() => setExibirModalDisciplina(false)} style={{ width: '100%', background: 'none', border: 'none', marginTop: '10px', color: '#64748b' }}>Cancelar</button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {exibirModalVinculo && (
+        <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', backgroundColor: 'rgba(0,0,0,0.4)', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+          <div style={{ backgroundColor: 'white', padding: '30px', borderRadius: '12px', width: '350px' }}>
+            <h3>Criar Atribuição Acadêmica</h3>
+            <form onSubmit={handleSubmitVinculo(handleSalvarVinculo)}>
+              <div style={{ marginBottom: '10px' }}>
+                <label>Selecionar Aluno:</label>
+                <select {...registerVinculo("aluno_id")} style={{ width: '100%', padding: '8px' }}>
+                  {alunosCadastrados.map(a => <option key={a.id} value={a.id}>{a.nome || a.name}</option>)}
+                </select>
+              </div>
+              <div style={{ marginBottom: '10px' }}>
+                <label>Selecionar Mentor:</label>
+                <select {...registerVinculo("mentor_id")} style={{ width: '100%', padding: '8px' }}>
+                  {mentoresCadastrados.map(m => <option key={m.id} value={m.id}>{m.nome || m.name}</option>)}
+                </select>
+              </div>
+              <div style={{ marginBottom: '15px' }}>
+                <label>Disciplina:</label>
+                <select {...registerVinculo("disciplina_id")} style={{ width: '100%', padding: '8px' }}>
+                  {listaDisciplinas.map(d => <option key={d.id} value={d.id}>{d.nome}</option>)}
+                </select>
+              </div>
+              <button type="submit" style={{ width: '100%', backgroundColor: '#0d233a', color: 'white', padding: '10px', border: 'none', borderRadius: '6px' }}>Efetivar Vínculo</button>
+              <button type="button" onClick={() => setExibirModalVinculo(false)} style={{ width: '100%', background: 'none', border: 'none', marginTop: '10px' }}>Cancelar</button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL LANÇAR NOTAS */}
+      {exibirModalNotas && (
+        <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', backgroundColor: 'rgba(0,0,0,0.4)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1100 }}>
+          <div style={{ backgroundColor: 'white', padding: '30px', borderRadius: '12px', width: '380px' }}>
+            <h3>Lançamento de Notas</h3>
+            <p style={{ fontSize: '13px', color: '#64748b' }}>Aluno: <strong>{alunoSelecionadoParaNotas?.aluno_nome || alunoSelecionadoParaNotas?.aluno}</strong><br/>Matéria: {alunoSelecionadoParaNotas?.disciplina_nome || alunoSelecionadoParaNotas?.disciplina}</p>
+            <form onSubmit={handleSubmitNotas(handleSalvarNotasDesempenho)}>
+              <div style={{ marginBottom: '10px' }}><label>Nota Inicial:</label><input type="number" min="0" max="10" step="0.1" {...registerNotas("nota_inicial", { required: true })} style={{ width: '100%', padding: '8px' }} /></div>
+              <div style={{ marginBottom: '10px' }}><label>Nota Intermediária:</label><input type="number" min="0" max="10" step="0.1" {...registerNotas("nota_intermediaria", { required: true })} style={{ width: '100%', padding: '8px' }} /></div>
+              <div style={{ marginBottom: '12px' }}><label>Nota Final (Prova):</label><input type="number" min="0" max="10" step="0.1" {...registerNotas("nota_final", { required: true })} style={{ width: '100%', padding: '8px' }} /></div>
+              <div style={{ marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <input type="checkbox" {...registerNotas("destaque")} id="chkDestaque" />
+                <label htmlFor="chkDestaque" style={{ fontSize: '13px', fontWeight: 'bold', color: '#b45309' }}>🌟 Destacar Aluno neste Semestre</label>
+              </div>
+              <button type="submit" style={{ width: '100%', backgroundColor: '#3b82f6', color: 'white', padding: '12px', border: 'none', borderRadius: '6px', fontWeight: 'bold' }}>Salvar Relatório de Evolução</button>
+              <button type="button" onClick={() => setExibirModalNotas(false)} style={{ width: '100%', background: 'none', border: 'none', marginTop: '10px', color: '#64748b' }}>Cancelar</button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL REGISTRAR MONITORIA */}
+      {exibirModalMonitoria && (
+        <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', backgroundColor: 'rgba(0,0,0,0.4)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1100 }}>
+          <div style={{ backgroundColor: 'white', padding: '30px', borderRadius: '12px', width: '380px' }}>
+            <h3>Registrar Encontro de Monitoria</h3>
+            <p>Destinatário: <strong>{alunoSelecionadoParaMonitoria?.aluno_nome || alunoSelecionadoParaMonitoria?.aluno}</strong></p>
+            <form onSubmit={handleSubmitMonit(handleSalvarMonitoria)}>
+              <div style={{ marginBottom: '12px' }}><label>Data:</label><input type="date" {...registerMonit("data", { required: true })} style={{ width: '100%', padding: '8px' }} /></div>
+              <div style={{ marginBottom: '20px' }}><label>Sumário:</label><textarea {...registerMonit("descricao", { required: true })} style={{ width: '100%', padding: '8px', height: '80px' }}></textarea></div>
+              <button type="submit" style={{ width: '100%', backgroundColor: '#10b981', color: 'white', padding: '12px', border: 'none', borderRadius: '6px', fontWeight: 'bold' }}>Efetivar Registro</button>
+              <button type="button" onClick={() => setExibirModalMonitoria(false)} style={{ width: '100%', background: 'none', border: 'none', marginTop: '10px', color: '#64748b' }}>Cancelar</button>
+            </form>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

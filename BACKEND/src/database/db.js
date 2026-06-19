@@ -1,64 +1,59 @@
 const Database = require('better-sqlite3');
+const path = require('path');
 
-const db = new Database('database.db');
+const db = new Database(path.join(__dirname, '../../database.db'));
 
-// Criar tabela se não existir
-db.prepare(`
-CREATE TABLE IF NOT EXISTS users (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  nome TEXT,
-  email TEXT UNIQUE,
-  senha TEXT,
-  tipo TEXT, -- admin | mentor | aluno
-  status TEXT
-)
-`).run();
+// Criar tabelas se não existirem
+db.exec(`
+  CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    nome TEXT NOT NULL,
+    email TEXT UNIQUE NOT NULL,
+    senha TEXT NOT NULL,
+    tipo TEXT NOT NULL,
+    status TEXT DEFAULT 'ativo' -- Adicionado para evitar quebras
+  );
 
-db.prepare(`
-CREATE TABLE IF NOT EXISTS disciplinas (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  nome TEXT,
-  codigo TEXT,
-  cargaHoraria INTEGER
-)
-`).run();
+  CREATE TABLE IF NOT EXISTS disciplinas (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    nome TEXT NOT NULL,
+    codigo TEXT UNIQUE NOT NULL,
+    cargaHoraria INTEGER NOT NULL
+  );
 
-db.prepare(`
-CREATE TABLE IF NOT EXISTS mentor_disciplinas (
-  mentor_id INTEGER,
-  disciplina_id INTEGER
-)
-`).run();
+  -- 🔌 NOVA: Atribuição de Aluno a Mentor e Disciplina
+  CREATE TABLE IF NOT EXISTS vinculos (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    aluno_id INTEGER NOT NULL,
+    mentor_id INTEGER NOT NULL,
+    disciplina_id INTEGER NOT NULL,
+    FOREIGN KEY(aluno_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY(mentor_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY(disciplina_id) REFERENCES disciplinas(id) ON DELETE CASCADE
+  );
 
-db.prepare(`
-CREATE TABLE IF NOT EXISTS aluno_disciplinas (
-  aluno_id INTEGER,
-  disciplina_id INTEGER
-)
-  `).run();
+  -- 📅 NOVA: Agendamento e Registro de Monitorias
+  CREATE TABLE IF NOT EXISTS monitorias (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    vinculo_id INTEGER NOT NULL,
+    data TEXT NOT NULL,
+    descricao TEXT,
+    status TEXT DEFAULT 'Agendada',
+    FOREIGN KEY(vinculo_id) REFERENCES vinculos(id) ON DELETE CASCADE
+  );
 
-db.prepare(`
-CREATE TABLE IF NOT EXISTS mentorias (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  aluno_id INTEGER,
-  mentor_id INTEGER,
-  disciplina_id INTEGER,
-  data TEXT,
-  horario TEXT,
-  status TEXT, -- pendente, confirmado, cancelado
-  resumo TEXT,
-  presenca BOOLEAN
-)
-`).run();
-
-db.prepare(`
-CREATE TABLE IF NOT EXISTS mensagens (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  remetente_id INTEGER,
-  destinatario_id INTEGER,
-  conteudo TEXT,
-  data_envio TEXT
-)
-`).run();
+  -- 📈 NOVA: Notas e Desempenho dos Alunos
+  CREATE TABLE IF NOT EXISTS desempenho (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    aluno_id INTEGER NOT NULL,
+    disciplina_id INTEGER NOT NULL,
+    nota_inicial REAL,
+    nota_intermediaria REAL,
+    nota_final REAL,
+    destaque INTEGER DEFAULT 0, -- 0 = Normal, 1 = Aluno Destaque
+    FOREIGN KEY(aluno_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY(disciplina_id) REFERENCES disciplinas(id) ON DELETE CASCADE
+  );
+`);
 
 module.exports = db;

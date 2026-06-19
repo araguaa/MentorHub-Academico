@@ -182,42 +182,49 @@ export function Dashboard() {
     } catch (err) { setErroApi('Falha ao criar atribuição.'); }
   };
 
-  const handleSalvarMonitoria = async (dados) => {
-    try {
-      await axios.post('http://localhost:3000/academico/monitorias', dados);
-      dispararMensagemSucesso('Sessão registrada no histórico com sucesso!');
-      setExibirModalMonitoria(false);
-      resetMonitForm();
-      carregarDadosDoBanco();
-    } catch (err) { setErroApi('Erro ao arquivar monitoria.'); }
-  };
+const handleSalvarMonitoria = async (dados) => {
+  try {
+    const payload = {
+      vinculo_id: alunoSelecionadoParaMonitoria.id, // O ID do item da tabela de vínculos do mentor é o vinculo_id requisitado
+      data: dados.data,
+      descricao: dados.descricao
+    };
+
+    await axios.post('http://localhost:3000/academico/monitorias', payload);
+    dispararMensagemSucesso('Sessão registrada no histórico com sucesso!');
+    setExibirModalMonitoria(false);
+    resetMonitForm();
+    carregarDadosDoBanco();
+  } catch (err) { 
+    setErroApi('Erro ao arquivar monitoria: Verifique os parâmetros enviados.'); 
+  }
+};
 
   // 🔥 SOLUÇÃO DEFINITIVA DO SALVAMENTO DE NOTAS (Payload Duplo / Flexível)
-  const handleSalvarNotasDesempenho = async (dados) => {
-    try {
-      // Enviamos tanto as chaves numéricas quanto os nomes em texto plano para satisfazer qualquer que seja a modelagem do seu banco SQLite
-      const payload = {
-        aluno_id: alunoSelecionadoParaNotas.aluno_id || alunoSelecionadoParaNotas.id,
-        disciplina_id: alunoSelecionadoParaNotas.disciplina_id,
-        aluno_nome: alunoSelecionadoParaNotas.aluno_nome || alunoSelecionadoParaNotas.aluno,
-        disciplina_nome: alunoSelecionadoParaNotas.disciplina_nome || alunoSelecionadoParaNotas.disciplina,
-        aluno: alunoSelecionadoParaNotas.aluno_nome || alunoSelecionadoParaNotas.aluno, 
-        disciplina: alunoSelecionadoParaNotas.disciplina_nome || alunoSelecionadoParaNotas.disciplina,
-        nota_inicial: parseFloat(dados.nota_inicial),
-        nota_intermediaria: parseFloat(dados.nota_intermediaria),
-        nota_final: parseFloat(dados.nota_final),
-        destaque: dados.destaque ? 1 : 0
-      };
-      
-      await axios.post('http://localhost:3000/academico/desempenho', payload);
-      dispararMensagemSucesso('Boletim de evolução e destaque atualizados com sucesso!');
-      setExibirModalNotas(false);
-      resetNotasForm();
-      carregarDadosDoBanco();
-    } catch (err) { 
-      setErroApi('Falha na persistência: Verifique se os campos de notas estão preenchidos corretamente ou se o backend espera parâmetros adicionais.'); 
-    }
-  };
+const handleSalvarNotasDesempenho = async (dados) => {
+  try {
+    // Buscamos o ID real varrendo a lista de usuários e disciplinas para garantir o ID numérico correto do banco
+    const alunoReal = listaUsuarios.find(u => (u.nome || u.name) === (alunoSelecionadoParaNotas.aluno_nome || alunoSelecionadoParaNotas.aluno));
+    const discReal = listaDisciplinas.find(d => d.nome === (alunoSelecionadoParaNotas.disciplina_nome || alunoSelecionadoParaNotas.disciplina));
+
+    const payload = {
+      aluno_id: alunoReal ? alunoReal.id : (alunoSelecionadoParaNotas.aluno_id || alunoSelecionadoParaNotas.id),
+      disciplina_id: discReal ? discReal.id : alunoSelecionadoParaNotas.disciplina_id,
+      nota_inicial: parseFloat(dados.nota_inicial),
+      nota_intermediaria: parseFloat(dados.nota_intermediaria),
+      nota_final: parseFloat(dados.nota_final),
+      destaque: dados.destaque ? 1 : 0
+    };
+    
+    await axios.post('http://localhost:3000/academico/desempenho', payload);
+    dispararMensagemSucesso('Boletim de evolução e destaque atualizados com sucesso!');
+    setExibirModalNotas(false);
+    resetNotasForm();
+    carregarDadosDoBanco();
+  } catch (err) { 
+    setErroApi('Falha na persistência: Verifique se os campos de notas estão preenchidos corretamente.'); 
+  }
+};
 
   const abrirEdicaoUsuario = (usuario) => {
     setItemEmEdicao(usuario);

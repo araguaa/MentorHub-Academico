@@ -309,12 +309,27 @@ const handleSalvarNotasDesempenho = async (dados) => {
           )}
         </nav>
 
-        {perfil !== 'publico' && (
-          <div style={{ borderTop: '1px solid #1e293b', paddingTop: '15px' }}>
-            <span style={{ fontSize: '13px', display: 'block', marginBottom: '10px', color: '#cbd5e1' }}>Conectado como: <br/><strong style={{ color: 'white' }}>{usuarioLogado?.nome || usuarioLogado?.name || 'Usuário'}</strong> ({perfil.toUpperCase()})</span>
-            <button onClick={handleLogout} style={{ width: '100%', backgroundColor: '#ef4444', color: 'white', border: 'none', padding: '8px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>Sair</button>
-          </div>
-        )}
+{perfil !== 'publico' && (
+  <div style={{ borderTop: '1px solid #1e293b', paddingTop: '15px' }}>
+    <span style={{ fontSize: '13px', display: 'block', marginBottom: '10px', color: '#cbd5e1' }}>
+      Conectado como: <br/>
+      <strong style={{ color: 'white' }}>{usuarioLogado?.nome || usuarioLogado?.name || 'Usuário'}</strong> ({perfil.toUpperCase()})
+    </span>
+    
+    {/* --- ETAPA 1: EXIBIÇÃO DA DISCIPLINA DO MENTOR --- */}
+    {perfil === 'mentor' && (
+      <div style={{ backgroundColor: 'rgba(255,255,255,0.05)', padding: '8px', borderRadius: '4px', marginBottom: '12px', fontSize: '12px', borderLeft: '3px solid #3b82f6' }}>
+        <span style={{ color: '#94a3b8', display: 'block' }}>📚 Disciplina Monitorada:</span>
+        <strong style={{ color: '#f8fafc' }}>
+          {meusAlunosVinculados[0]?.disciplina_nome || meusAlunosVinculados[0]?.disciplina || "Nenhuma cadastrada"}
+        </strong>
+      </div>
+    )}
+    {/* ------------------------------------------------- */}
+
+    <button onClick={handleLogout} style={{ width: '100%', backgroundColor: '#ef4444', color: 'white', border: 'none', padding: '8px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>Sair</button>
+  </div>
+)}
       </aside>
 
       {/* PAINEL DE CONTEÚDO PRINCIPAL */}
